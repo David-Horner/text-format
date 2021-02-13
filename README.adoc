@@ -72,15 +72,30 @@ Note, when `MZPLDST.base` = 0, even when MZPLDST.enable=1,
     then the behaviour of `[lb|lbu|sb] rd, offset(x0)` is unchanged.
 
 If `MZPLDST.enable=1` then 
+
 . `MZPLDST.base` is substituted for `x0`.
-. the under utilised unaligned bits of `offset` are inserted towards the top, so that
-.. `offset` for `lb[u] rd, offset[11:0](x0)` is unchanged, giving a 4KB range
-.. `offset` for `lh[u] rd, (offset[11:0,10:1]<<1)(x0)` giving an 8KB range
-.. `offset` for `lw[u] rd, (offset[11:0:1,10:2]<<2)(x0)` giving a 16KB range
-.. `offset` for `ld[u] rd, (offset[11:0:2,10:2]<<3)(x0)` giving a 32KB range
-.. `offset` for `lq rd, (offset[11:0:3,10:4]<<4)(x0)` giving a 64KB range
+. the under utilised unaligned bits of `offset` are inserted towards the top thusly:
+
+.. b-offset [11:1]
+.. h-offset [11,*0,10:1]<<1
+.. w-offset [11,*1,*0,10:2]<<2
+.. d-offset [11,*2,*1,*0,10:3]<<3
+.. q-offset [11,*3,*2,*1,*0,10:4]<<4)
+
+Where [*bit] denotes ([bit] xor [11])
+That is a zero inserted bit yields a result the same as the sign.
+Thus aligned addresses when enamble = 0 are exactly the same as when enable = 1.
 
 Note: keeping bit [11] as the sign bit of the offset is consistent with all RVI instructions.
+
+Note: That each bit location in the immediate fireld affects at most 2 resultant locations in the offset. 
+
+
+* `offset` for `lb[u] rd, b-offset(x0)` is unchanged, giving a 4KB range
+* `offset` for `lh[u] rd, h-offset(x0)` giving an 8KB range
+* `offset` for `lw[u] rd, w-offset(x0)` giving a 16KB range
+* `offset` for `ld[u] rd, d-offset(x0)` giving a 32KB range
+* `offset` for `lq    rd, q-offset(x0)` giving a 64KB range
 
 The same extension of the offset occurs for stores {sb,sh,sw,sd,sq} as well.
 
@@ -90,25 +105,25 @@ Therefore the behaviour is:
 ----
 
 lb[u] rd, offset(x0);# executes lb[u] rd, MZPLDST.base+offset[11:0]
-lh[u] rd, offset(x0);# executes lh[u] rd, MZPLDST.base+(offset[11,0,10:1]<<1)
-lw[u] rd, offset(x0);# executes lw[u] rd, MZPLDST.base+(offset[11,0:1,10:2]<<2)
-ld[u] rd, offset(x0);# executes ld[u] rd, MZPLDST.base+(offset[11,0:2,10:2]<<3)
-lq    rd, offset(x0);# executes lq    rd, MZPLDST.base+(offset[11,0:3,10:4]<<4)
+lh[u] rd, offset(x0);# executes lh[u] rd, MZPLDST.base+(offset[11,*0,10:1]<<1)
+lw[u] rd, offset(x0);# executes lw[u] rd, MZPLDST.base+(offset[11,*1,*0,10:2]<<2)
+ld[u] rd, offset(x0);# executes ld[u] rd, MZPLDST.base+(offset[11,*2,*1,*0,10:3]<<3)
+lq    rd, offset(x0);# executes lq    rd, MZPLDST.base+(offset[11,*3,*2,*1,*0,10:4]<<4)
 
 sb rs1, offset(x0);# executes as sb rs1, MZPLDST.base+offset[11:0]
-sh rs1, offset(x0);# executes as sh rs1, MZPLDST.base+(offset[11,0,10:1]<<1)
-sw rs1, offset(x0);# executes as sw rs1, MZPLDST.base+(offset[11,0:1,10:2]<<2)
-sd rs1, offset(x0);# executes as sd rs1, MZPLDST.base+(offset[11,0:2,10:3]<<3)
-sq rs1, offset(x0);# executes as sq rs1, MZPLDST.base+(offset[11,0:3,10:4]<<4)
-
-Or perhaps the offset should better be:
-.. h offset [11,11_V_0,10:1]<<1)
-.. w offset [11,1,0,10:2]<<2)
-.. d offset (offset[11,2,1,0,10:3]<<3)
-.. q offset (offset[11,3,2,1,0,10:4]<<4)
-That is each bit has at most 2 resultant locations. 
+sh rs1, offset(x0);# executes as sh rs1, MZPLDST.base+(offset[11,*0,10:1]<<1)
+sw rs1, offset(x0);# executes as sw rs1, MZPLDST.base+(offset[11,*1,*0,10:2]<<2)
+sd rs1, offset(x0);# executes as sd rs1, MZPLDST.base+(offset[11,*2,*1,*0,10:3]<<3)
+sq rs1, offset(x0);# executes as sq rs1, MZPLDST.base+(offset[11,*3,*2,*1,*0,10:4]<<4)
 
 ----
+
+
+Where [*bit] denotes ([bit] xor [11])
+That is a zero inserted bit yields a result the same as the sign.
+Thus aligned addresses when enamble = 0 are exactly the same as when enable = 1.
+
+
 
 == Application
 
@@ -137,9 +152,21 @@ The linker should be able to make use of this feature, so the compiler doesn't n
 
 == Context save/restore
 
-Whether `MZPJALR/MZPLDST` are saved and restored on a context switch is platform defined. They could be set globally for all contexts to use, or they could be set separately.
+Whether `MZPJALR/MZPLDST` are saved and restored on a context switch is platform defined. 
+They could be set globally for all contexts to use, or they could be set separately.
 
-It is probably not worth using the CSR space to create supervisor mode versions, as this scheme is primarily targetting small embedded cores which only support M/U-modes. TBD.
+RV64 systems particularly benefit from this feature as any region in 64bit memory is addressable in only 32bits.
+
+
+It is not now known how extensively this feature will be.
+This scheme is primarily targetting small embedded cores providing a low cost immediate benefit in the M and M/U modes.
+
+However, it should be designed to work well even with Hypervisor systems.  
+
+This feature cooperates well with virtual memory when the result of add of base plus offset is a virtual address.
+However, page addressing can already map the two pages centered on virtual zero to any physical address space, granted not at a 1K granularity.
+
+It is thus not necessary to have a distinct System csr SZPLDST for M/S/U systems.
 
 == Virtual memory and PMP
 
@@ -172,11 +199,12 @@ to show it's relative to the zero-page pointer, and with the immediate scale, an
 zlw a1, 0x400
 ----
 
-Any specific disassembly requirement will require a adding a flag to the ELF file, or change to the ELF file format to add a new ELF section. TBD.
+Any specific disassembly requirement will require adding a flag to the ELF file, or change to the ELF file format to add a new ELF section. TBD.
 
 == Caveat
 
-If a SoC has memory allocated ±2KB around address zero (i.e. the bottom and top 2KB of the address map), and the compiler / handwritten assembler reference it by using load/stores/`JALR` which reference x0 then the zero page mode will not be usable on that platform.
+If a SoC has memory allocated ±2KB around address zero (i.e. the bottom and top 2KB of the address map), and the compiler / handwritten assembler reference it by using load/stores/`JALR` which reference x0 then the zero page mode may be limitted to base = 0 on  that platform.
+For other SoC that do not have valid memory support around zero, this provides a mechanism to reloacate to parts of the memeory map that do support load/store and/or code execution.
 
 
 
