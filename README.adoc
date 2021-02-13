@@ -74,7 +74,36 @@ Note, when `MZPLDST.base` = 0, even when MZPLDST.enable=1,
 If `MZPLDST.enable=1` then 
 
 . `MZPLDST.base` is substituted for `x0`.
-. the under utilised unaligned bits of `offset` are inserted towards the top thusly:
+. the under utilised unaligned bits of `offset` are used to extend the range of half and larger data types.
+. the unextended range is unchanged [the same as when enable=0
+. the extended range is to be contigous and
+. the overlap of the ranges per data size agree with the unextended range.
+
+== encoding options
+
+=== expanded range centered on original unextended range [ base address].
+
+----
+
+                                                base
+                                                |
+                                                V
+                                               B B
+                                             H H H H
+                                         W W W W W W W W 
+                                 D D D D D D D D D D D D D D D D     
+                   Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q
+                   
+  legend:
+  B - 2K Byte blocks         [ -2K to +2K ]  
+  H - 2K Half-word blocks    [ -4K to +4K ]  
+  W - 2K Word blocks         [ -8K to +8K ]  
+  D - 2K Double blocks      [ -16K to +16K ]  
+  Q - 2K Quad-word blocks   [ -32K to +32K ]  
+   
+ 
+ ----
+ 
 
 .. b-offset [11:1]
 .. h-offset [11,*0,10:1]<<1
@@ -123,6 +152,20 @@ Where [*bit] denotes ([bit] xor [11])
 That is a zero inserted bit yields a result the same as the sign.
 Thus aligned addresses when enamble = 0 are exactly the same as when enable = 1.
 
+=== expanded range centered on original unextended range [ base address].
+
+----
+
+                     base
+                     |
+                     V
+                    B B
+                    H H H H
+                    W W W W W W W W
+                    D D D D D D D D D D D D D D D D   
+                    Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q
+ 
+ ----
 
 
 == Application
