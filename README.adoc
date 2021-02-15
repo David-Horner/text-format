@@ -1,8 +1,8 @@
 = Zero page relocation
 
 [NOTE]
-
-  This proposed is entirely based on David Horner's work, written up by Tariq
+Initially written up by Tariq, this proposal is based on discussions with (in reverse alpha order):
+Jim Wilson, Anders Lindgren, Mark Himelstein, David Horner, Brian Grayson, Arjan Bink and Allen Baum. 
   
 This proposal adds new CSRs to control the behaviour of unusual encodings, which are not very useful in general, and changes the behaviour to make it more useful.
 
@@ -87,6 +87,7 @@ If `MZPLDST.enable=1` then
 
 === expanded range centered on original unextended range [ base address].
 
+[source,sourceCode,text]
 ----
 
                                                 base
@@ -105,9 +106,7 @@ If `MZPLDST.enable=1` then
   D - 2K Double blocks      [ -16K to +16K ]  
   Q - 2K Quad-word blocks   [ -32K to +32K ]  
    
- 
- ----
- 
+---- 
 
 .. b-offset [11:0]
 .. h-offset [11,*0,10:1]<<1
@@ -115,27 +114,33 @@ If `MZPLDST.enable=1` then
 .. d-offset [11,*2,*1,*0,10:3]<<3
 .. q-offset [11,*3,*2,*1,*0,10:4]<<4)
 
-Where [*bit] denotes ([bit] xor [11])
+
+
+Where [*bit] denotes ([bit] xor [11]; [bit] &#10753; [11])   
 That is a zero inserted bit yields a result the same as the sign.
-Thus aligned addresses when enamble = 0 are exactly the same as when enable = 1.
+Thus aligned addresses when enable = 0 are exactly the same as when enable = 1.
 
 Note: keeping bit [11] as the sign bit of the offset is consistent with all RVI instructions.
 
 Note: That each bit location in the immediate fireld affects at most 2 resultant locations in the offset. 
 
 
+[source,sourceCode,text]
+----
+
 * `offset` for `lb[u] rd, b-offset(x0)` is unchanged, giving a 4KB range
 * `offset` for `lh[u] rd, h-offset(x0)` giving an 8KB range
 * `offset` for `lw[u] rd, w-offset(x0)` giving a 16KB range
 * `offset` for `ld[u] rd, d-offset(x0)` giving a 32KB range
 * `offset` for `lq    rd, q-offset(x0)` giving a 64KB range
+----
 
 The same extension of the offset occurs for stores {sb,sh,sw,sd,sq} as well.
 
 Therefore the behaviour is:
 
 [source,sourceCode,text]
-----
+---- 
 
 lb[u] rd, offset(x0);# executes lb[u] rd, MZPLDST.base+offset[11:0]
 lh[u] rd, offset(x0);# executes lh[u] rd, MZPLDST.base+(offset[11,*0,10:1]<<1)
@@ -152,13 +157,14 @@ sq rs1, offset(x0);# executes as sq rs1, MZPLDST.base+(offset[11,*3,*2,*1,*0,10:
 ----
 
 
-Where [*bit] denotes ([bit] xor [11])
-That is a zero inserted bit yields a result the same as the sign.
-Thus aligned addresses when enamble = 0 are exactly the same as when enable = 1.
+Where [*bit] denotes ([bit] xor [11]; [bit] &#10753; [11])  
+That is, a zero inserted bit yields a result the same as the sign.
+Thus aligned addresses when enable = 0 are exactly the same as when enable = 1.
 
 === expanded range centered on original unextended range [ base address].
 
-----
+[source,sourceCode,text]
+---- 
 
                      base
                      |
@@ -177,9 +183,7 @@ Thus aligned addresses when enamble = 0 are exactly the same as when enable = 1.
   D - 2K Double blocks      [ -16K to +16K ]  
   Q - 2K Quad-word blocks   [ -32K to +32K ]  
    
- 
-
- 
+---- 
 
 .. b-offset [11:0]
 .. h-offset [11:1] +   [0] * (4K)
@@ -187,7 +191,7 @@ Thus aligned addresses when enamble = 0 are exactly the same as when enable = 1.
 .. d-offset [11:3] + [2:0] * (4K)
 .. q-offset [11:4] + [3:0] * (4K)
  
- ----
+
 
 
 == Application
@@ -209,11 +213,17 @@ Some functions also have this (sometimes it's a 32-bit sequence to call it)
 10bef30:     f52080e7                jalr    -174(ra) # e05e7e <__stack_chk_fail>
 ----
 
-These could be replaced by zero-page `jalr` and `lw` meaning that 64-bit sequences would never be required. Additionally table jump can be used for the calls to `__stack_chk_fail`
+These could be replaced by zero-page `lw` and `jalr`  meaning that 64-bit sequences would never be required. Additionally table jump can be used for the calls to `__stack_chk_fail`
+
+In general zero-page 
+
+ * load/store are applicable to global variable use.
+ * jalr are a 32bit far-jump and far-jump-and-link construct with extended target range.
 
 == Link Time Optimisation
 
 The linker should be able to make use of this feature, so the compiler doesn't need to know about it.
+This is true for both globals and for calls.
 
 == Context save/restore
 
@@ -243,14 +253,17 @@ Therefore the generated addresses are handled identically to any other load/stor
 
 == Disassembly
 
-The disassembly for this should be modified to make it clear that zero page mode is in use. For example:
+The native instruction format suffices in the disassembler.
+The reader knows whether zero-page is efecive or not and the implications. 
+
+However, a zero-page disassembler can make it clear that zero page mode is in use. For example:
 
 [source,sourceCode,text]
 ----
 lw a1, 0x100(x0)
 ----
 
-maybe should disassemble as
+maybe would disassemble as
 
 [source,sourceCode,text]
 ----
