@@ -47,8 +47,12 @@ Thus there is no 16-bit form without explicitly defining one.
 
 === Further Considerations
 
-Propose a 16bit variant. 
-Potentially the proposed 16bit TBLJMP could map to these 32bit versions.  
+. Propose a 16bit variant. 
+. Potentially the proposed 16bit TBLJMP could map to these 32bit versions.  
+. make behaviour instruction location dependant.
+.. jal has a 1meg range completely covering the 128K range of jalr x0, thus redundant within the zero page range.
+... within this range jalr x0 can apply to an extended range outside the standard zero page range.
+.. there are many other options.
 
 == Zero Page load/store
 
@@ -105,7 +109,7 @@ If `MZPLDST.enable=1` then
  ----
  
 
-.. b-offset [11:1]
+.. b-offset [11:0]
 .. h-offset [11,*0,10:1]<<1
 .. w-offset [11,*1,*0,10:2]<<2
 .. d-offset [11,*2,*1,*0,10:3]<<3
@@ -164,6 +168,24 @@ Thus aligned addresses when enamble = 0 are exactly the same as when enable = 1.
                     W W W W W W W W
                     D D D D D D D D D D D D D D D D   
                     Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q
+                    
+                   
+  legend:
+  B - 2K Byte blocks         [ -2K to +2K ]  
+  H - 2K Half-word blocks    [ -4K to +4K ]  
+  W - 2K Word blocks         [ -8K to +8K ]  
+  D - 2K Double blocks      [ -16K to +16K ]  
+  Q - 2K Quad-word blocks   [ -32K to +32K ]  
+   
+ 
+
+ 
+
+.. b-offset [11:0]
+.. h-offset [11:1] +   [0] * (4K)
+.. w-offset [11:2] + [1:0] * (4K)
+.. d-offset [11:3] + [2:0] * (4K)
+.. q-offset [11:4] + [3:0] * (4K)
  
  ----
 
