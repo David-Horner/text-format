@@ -1,0 +1,285 @@
+= Zero page relocation
+
+[NOTE]
+Initially written up by Tariq, this proposal is based on discussions with (in reverse alpha order):
+Jim Wilson, Anders Lindgren, Mark Himelstein, David Horner, Brian Grayson, Arjan Bink and Allen Baum. 
+  
+This proposal adds new CSRs to control the behaviour of unusual encodings, which are not very useful in general, and changes the behaviour to make it more useful.
+
+
+== zero page JALR
+
+=== CSR
+
+* `MZPJALR[0] = enable`
+* `MZPJALR[XLEN-1:10] = base`  # on 1K boundaries
+* `MZPJALR[9:8] -> scale`
+* `MZPJALR[7:1]` - *reserved*
+
+scale values are 8,16,32 and 64 encoded as 0,1,2,and 3 
+
+[NOTE]
+
+  The https://github.com/riscv/riscv-code-size-reduction/blob/master/ISA%20proposals/Huawei/table%20jump.adoc[table jump proposal] reduces the usefulness of this
+
+== Behaviour
+
+If `MZPJALR.enable=0` then the behaviour of `JALR rd, offset(x0)` is as originally; that is with a scale of 1 and x0 set to zero.
+
+If `MZPJALR.enable=1` then the behaviour of `JALR rd, offset(x0)` takes on a new meaning. 
+
+. `MZPJALR.base` is substituted for `x0`.
+. `offset` is scaled by `MZPJALR.scale` before use to give a bigger range.
+
+Therefore the behaviour is:
+
+[source,sourceCode,text]
+----
+
+jalr rd, offset(x0);# executes as jalr rd, MZPJALR.base+offset*scale
+
+----
+
+This gives a region of 16K to 128K which can always be accessed by 
+`jalr x0,offset` from anywhere in the address map. 
+Note that `c.jalr` is not affected, since `x0` is explicitly excluded.
+Thus there is no 16-bit form without explicitly defining one.
+
+=== Further Considerations
+
+. Propose a 16bit variant. 
+. Potentially the proposed 16bit TBLJMP could map to these 32bit versions.  
+. make behaviour instruction location dependant.
+.. jal has a 1meg range completely covering the 128K range of jalr x0, thus redundant within the zero page range.
+... within this range jalr x0 can apply to an extended range outside the standard zero page range.
+.. there are many other options.
+
+== Zero Page load/store
+
+=== CSR
+
+* `MZPLDST[0] = enable`
+* `MZPLDST[XLEN-1:10] = base`  # on 1K boundaries
+* `MZPLDST[9:1]` - *reserved*
+
+== Behaviour
+
+If `MZPLDST.enable=0` then the behaviour of `[lq|ld|ldu|lw|lwu|lh|lhu|lb|lbu] rd, offset(x0)` is unchanged.
+
+If `MZPLDST.enable=0` then the behaviour of `[sq|sd|sw|sh|sb] rs2, offset(x0)` is unchanged.
+
+If `MZPLDST.enable=1` then the behaviour of `[lq|ld|ldu|lw|lwu|lh|lhu|lb|lbu] rd, offset(x0)` expands takes on a new meaning.
+
+If `MZPLDST.enable=1` then the behaviour of `[sq|sd|sw|sh|sb] rs2, offset(x0)` takes on a new meaning.
+
+Note, when `MZPLDST.base` = 0, even when MZPLDST.enable=1,  
+    then the behaviour of `[lb|lbu|sb] rd, offset(x0)` is unchanged.
+
+If `MZPLDST.enable=1` then 
+
+. `MZPLDST.base` is substituted for `x0`.
+. the under utilised unaligned bits of `offset` are used to extend the range of half and larger data types.
+. the unextended range is unchanged [the same as when enable=0
+. the extended range is to be contigous and
+. the overlap of the ranges per data size agree with the unextended range.
+
+== encoding options
+
+=== expanded range centered on original unextended range [ base address].
+
+[source,sourceCode,text]
+----
+
+                                                base
+                                                |
+                                                V
+                                               B B
+                                             H H H H
+                                         W W W W W W W W 
+                                 D D D D D D D D D D D D D D D D     
+                   Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q
+                   
+  legend:
+  B - 2K Byte blocks         [ -2K to +2K ]  
+  H - 2K Half-word blocks    [ -4K to +4K ]  
+  W - 2K Word blocks         [ -8K to +8K ]  
+  D - 2K Double blocks      [ -16K to +16K ]  
+  Q - 2K Quad-word blocks   [ -32K to +32K ]  
+   
+---- 
+
+.. b-offset [11:0]
+.. h-offset [11,*0,10:1]<<1
+.. w-offset [11,*1,*0,10:2]<<2
+.. d-offset [11,*2,*1,*0,10:3]<<3
+.. q-offset [11,*3,*2,*1,*0,10:4]<<4)
+
+
+
+Where [*bit] denotes ([bit] xor [11]; [bit] &#10753; [11])   
+That is a zero inserted bit yields a result the same as the sign.
+Thus aligned addresses when enable = 0 are exactly the same as when enable = 1.
+
+Note: keeping bit [11] as the sign bit of the offset is consistent with all RVI instructions.
+
+Note: That each bit location in the immediate fireld affects at most 2 resultant locations in the offset. 
+
+
+[source,sourceCode,text]
+----
+
+* `offset` for `lb[u] rd, b-offset(x0)` is unchanged, giving a 4KB range
+* `offset` for `lh[u] rd, h-offset(x0)` giving an 8KB range
+* `offset` for `lw[u] rd, w-offset(x0)` giving a 16KB range
+* `offset` for `ld[u] rd, d-offset(x0)` giving a 32KB range
+* `offset` for `lq    rd, q-offset(x0)` giving a 64KB range
+----
+
+The same extension of the offset occurs for stores {sb,sh,sw,sd,sq} as well.
+
+Therefore the behaviour is:
+
+[source,sourceCode,text]
+---- 
+
+lb[u] rd, offset(x0);# executes lb[u] rd, MZPLDST.base+offset[11:0]
+lh[u] rd, offset(x0);# executes lh[u] rd, MZPLDST.base+(offset[11,*0,10:1]<<1)
+lw[u] rd, offset(x0);# executes lw[u] rd, MZPLDST.base+(offset[11,*1,*0,10:2]<<2)
+ld[u] rd, offset(x0);# executes ld[u] rd, MZPLDST.base+(offset[11,*2,*1,*0,10:3]<<3)
+lq    rd, offset(x0);# executes lq    rd, MZPLDST.base+(offset[11,*3,*2,*1,*0,10:4]<<4)
+
+sb rs1, offset(x0);# executes as sb rs1, MZPLDST.base+offset[11:0]
+sh rs1, offset(x0);# executes as sh rs1, MZPLDST.base+(offset[11,*0,10:1]<<1)
+sw rs1, offset(x0);# executes as sw rs1, MZPLDST.base+(offset[11,*1,*0,10:2]<<2)
+sd rs1, offset(x0);# executes as sd rs1, MZPLDST.base+(offset[11,*2,*1,*0,10:3]<<3)
+sq rs1, offset(x0);# executes as sq rs1, MZPLDST.base+(offset[11,*3,*2,*1,*0,10:4]<<4)
+
+----
+
+
+Where [*bit] denotes ([bit] xor [11]; [bit] &#10753; [11])  
+That is, a zero inserted bit yields a result the same as the sign.
+Thus aligned addresses when enable = 0 are exactly the same as when enable = 1.
+
+=== expanded range centered on original unextended range [ base address].
+
+[source,sourceCode,text]
+---- 
+
+                     base
+                     |
+                     V
+                    B B
+                    H H H H
+                    W W W W W W W W
+                    D D D D D D D D D D D D D D D D   
+                    Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q Q
+                    
+                   
+  legend:
+  B - 2K Byte blocks         [ -2K to +2K ]  
+  H - 2K Half-word blocks    [ -4K to +4K ]  
+  W - 2K Word blocks         [ -8K to +8K ]  
+  D - 2K Double blocks      [ -16K to +16K ]  
+  Q - 2K Quad-word blocks   [ -32K to +32K ]  
+   
+---- 
+
+.. b-offset [11:0]
+.. h-offset [11:1] +   [0] * (4K)
+.. w-offset [11:2] + [1:0] * (4K)
+.. d-offset [11:3] + [2:0] * (4K)
+.. q-offset [11:4] + [3:0] * (4K)
+ 
+
+
+
+== Application
+
+If compiling with the GCC option `-fstack-protector-strong` then every function in the Huawei IoT code has these:
+
+
+[source,sourceCode,text]
+----
+ e04a5e:  00f00437                lui     s0,0xf00
+ e04a62:  02c42783                lw      a5,44(s0) # f0002c <__stack_chk_guard>
+----
+
+Some functions also have this (sometimes it's a 32-bit sequence to call it)
+
+[source,sourceCode,text]
+----
+10bef2c:     ffd47097                auipc   ra,0xffd47
+10bef30:     f52080e7                jalr    -174(ra) # e05e7e <__stack_chk_fail>
+----
+
+These could be replaced by zero-page`lw` and `jalr`  meaning that 64-bit sequences would never be required. Additionally table jump can be used for the calls to `__stack_chk_fail`
+
+In general zero-page 
+* load/store are applicable to global variable use.
+* jalr are a 32bit far-jump and far-jump-and-link construct with extended target range.
+
+== Link Time Optimisation
+
+The linker should be able to make use of this feature, so the compiler doesn't need to know about it.
+This is true for both globals and for calls.
+
+== Context save/restore
+
+Whether `MZPJALR/MZPLDST` are saved and restored on a context switch is platform defined. 
+They could be set globally for all contexts to use, or they could be set separately.
+
+RV64 systems particularly benefit from this feature as any region in 64bit memory is addressable in only 32bits.
+
+
+It is not now known how extensively this feature will be.
+This scheme is primarily targetting small embedded cores providing a low cost immediate benefit in the M and M/U modes.
+
+However, it should be designed to work well even with Hypervisor systems.  
+
+This feature cooperates well with virtual memory when the result of add of base plus offset is a virtual address.
+However, page addressing can already map the two pages centered on virtual zero to any physical address space, granted not at a 1K granularity.
+
+It is thus not necessary to have a distinct System csr SZPLDST for M/S/U systems.
+
+== Virtual memory and PMP
+
+The resulting address from the zero page instructions are virtual addresses where virtual memory is implemented and enabled. 
+
+They are also subject to PMP checks, where the PMP is implemented and enabled.
+
+Therefore the generated addresses are handled identically to any other load/store or fetch addresses.
+
+== Disassembly
+
+The disassembly for this should be modified to make it clear that zero page mode is in use. For example:
+
+[source,sourceCode,text]
+----
+lw a1, 0x100(x0)
+----
+
+maybe should disassemble as
+
+[source,sourceCode,text]
+----
+lw a1, 0x400(zp)
+----
+
+to show it's relative to the zero-page pointer, and with the immediate scale, and also maybe use a different mnemonic:
+
+[source,sourceCode,text]
+----
+zlw a1, 0x400
+----
+
+Any specific disassembly requirement will require adding a flag to the ELF file, or change to the ELF file format to add a new ELF section. TBD.
+
+== Caveat
+
+If a SoC has memory allocated ±2KB around address zero (i.e. the bottom and top 2KB of the address map), and the compiler / handwritten assembler reference it by using load/stores/`JALR` which reference x0 then the zero page mode may be limitted to base = 0 on  that platform.
+For other SoC that do not have valid memory support around zero, this provides a mechanism to reloacate to parts of the memeory map that do support load/store and/or code execution.
+
+
+
+
